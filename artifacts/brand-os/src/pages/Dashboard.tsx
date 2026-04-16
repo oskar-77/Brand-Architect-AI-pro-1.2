@@ -2,8 +2,7 @@ import { Link } from "wouter";
 import { useGetDashboardSummary, useListBrands, getGetDashboardSummaryQueryKey, getListBrandsQueryKey } from "@workspace/api-client-react";
 import {
   Building2, Megaphone, FileText, PlusCircle, ArrowRight, Sparkles,
-  TrendingUp, Clock, Brain, Lightbulb, Zap, Target, Bell, CheckCircle2,
-  BarChart3, Activity, Star
+  TrendingUp, Clock, BarChart3, Activity, Star
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,35 +20,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-const aiInsights = [
-  {
-    icon: Lightbulb,
-    color: "text-amber-500",
-    bg: "bg-amber-50 dark:bg-amber-950",
-    title: "Optimal posting time detected",
-    desc: "Your audience is most active Tuesday–Thursday between 9AM–11AM. Schedule next campaign accordingly.",
-  },
-  {
-    icon: Target,
-    color: "text-violet-500",
-    bg: "bg-violet-50 dark:bg-violet-950",
-    title: "Brand consistency score: 94%",
-    desc: "Excellent visual consistency across your campaigns. Keep maintaining your color palette adherence.",
-  },
-  {
-    icon: Zap,
-    color: "text-cyan-500",
-    bg: "bg-cyan-50 dark:bg-cyan-950",
-    title: "New market trend identified",
-    desc: "Short-form video content is trending in your industry. Consider adding Reels-format posts to campaigns.",
-  },
-];
-
-const notifications = [
-  { label: "AI generated 3 new post variants", time: "2m ago", icon: Sparkles, color: "text-primary" },
-  { label: "Brand kit analysis complete", time: "1h ago", icon: CheckCircle2, color: "text-green-500" },
-  { label: "Campaign performance report ready", time: "3h ago", icon: BarChart3, color: "text-violet-500" },
-];
 
 export default function Dashboard() {
   const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary({
@@ -151,9 +121,9 @@ export default function Dashboard() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left — Brand Projects */}
-        <div className="lg:col-span-2 space-y-4">
+      <div className="space-y-4">
+        {/* Brand Projects */}
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-muted-foreground" />
@@ -245,57 +215,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right — AI Insights + Notifications */}
-        <div className="space-y-5">
-          {/* AI Insights */}
-          <div className="rounded-xl border border-card-border bg-card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Brain className="w-3.5 h-3.5 text-primary" />
-              </div>
-              <h2 className="text-sm font-semibold text-foreground">AI Insights</h2>
-              <span className="ml-auto text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">Live</span>
-            </div>
-            <div className="space-y-3">
-              {aiInsights.map((insight, i) => {
-                const Icon = insight.icon;
-                return (
-                  <div key={i} className="flex gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
-                    <div className={cn("w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5", insight.bg)}>
-                      <Icon className={cn("w-3.5 h-3.5", insight.color)} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground leading-snug">{insight.title}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{insight.desc}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Notifications */}
-          <div className="rounded-xl border border-card-border bg-card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Bell className="w-4 h-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold text-foreground">Recent Activity</h2>
-            </div>
-            <div className="space-y-3">
-              {notifications.map((n, i) => {
-                const Icon = n.icon;
-                return (
-                  <div key={i} className="flex items-start gap-3">
-                    <Icon className={cn("w-4 h-4 flex-shrink-0 mt-0.5", n.color)} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-foreground leading-snug">{n.label}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">{n.time}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
