@@ -46,8 +46,11 @@ router.get("/campaigns/:id", asyncHandler(async (req, res) => {
     })),
     brand: brand ? {
       companyName: brand.companyName,
+      companyDescription: brand.companyDescription,
+      industry: brand.industry,
       logoUrl: brand.logoUrl,
       primaryColor,
+      brandKit: brand.brandKit,
     } : null,
     createdAt: campaign.createdAt.toISOString(),
     updatedAt: campaign.updatedAt.toISOString(),

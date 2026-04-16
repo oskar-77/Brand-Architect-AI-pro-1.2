@@ -33,6 +33,7 @@ interface LongFormContent {
 }
 
 type ImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
+type StylePreset = "minimalist" | "bold" | "luxury" | "futuristic" | "cinematic" | "natural" | "vibrant" | "moody";
 
 interface ImageGenOptions {
   customPrompt: string;
@@ -41,6 +42,79 @@ interface ImageGenOptions {
   overlayText: string;
   includeLogo: boolean;
   logoDataUrl?: string;
+}
+
+interface BrandKitData {
+  personality?: string;
+  visualStyle?: string;
+  toneOfVoice?: string;
+  colorPalette?: { primary?: string; secondary?: string; accent?: string };
+  visualStyleRules?: string;
+}
+
+// ─── Professional prompt builder ──────────────────────────────────────────────
+
+function buildAutoPrompt(opts: {
+  brandName: string;
+  brandDescription?: string;
+  industry?: string;
+  personality?: string;
+  visualStyle?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  postConcept?: string;
+  platform?: string;
+  stylePreset: StylePreset;
+  overlayText?: string;
+}): string {
+  const styleDescriptions: Record<StylePreset, string> = {
+    minimalist: "ultra-clean minimalist composition, generous negative space, refined and breathable layout, subtle color gradients, elegant restraint",
+    bold: "bold graphic design, high-impact visual contrast, dynamic geometric shapes, powerful color blocking, striking and unforgettable",
+    luxury: "premium luxury aesthetic, gold and platinum accents, deep rich jewel tones, velvet-like textures, sophisticated editorial elegance, high-end campaign quality",
+    futuristic: "sleek futuristic tech aesthetic, neon glows on dark backgrounds, holographic iridescent highlights, cyberpunk-inspired precision, cutting-edge digital art",
+    cinematic: "cinematic wide-angle composition, dramatic Rembrandt lighting, shallow depth of field, film grain texture, moody atmospheric haze, Hollywood blockbuster quality",
+    natural: "organic natural aesthetic, warm earthy tones, lush botanical elements, soft diffused daylight, authentic handcrafted feel, serene and grounded",
+    vibrant: "vivid vibrant colors, electric energy, bold color blocking, playful graphic pop-art elements, eye-catching contrast, joyful and dynamic",
+    moody: "dark moody chiaroscuro atmosphere, dramatic deep shadows, low-key editorial lighting, mysterious and introspective, cinematic darkness with glowing focal highlights",
+  };
+
+  const platformNote = opts.platform === "instagram"
+    ? "square-format Instagram post, visually arresting and highly shareable"
+    : opts.platform === "linkedin"
+    ? "LinkedIn professional graphic, clean authoritative visual storytelling"
+    : opts.platform === "twitter"
+    ? "Twitter/X card image, bold and instantly readable at thumbnail size"
+    : "Facebook post image, emotionally engaging and community-oriented";
+
+  const colorClue = opts.primaryColor
+    ? `dominant palette anchored in ${opts.primaryColor}${opts.secondaryColor ? ` with ${opts.secondaryColor} accents` : ""}`
+    : "brand-harmonious color palette";
+
+  const visualStyleMap: Record<string, string> = {
+    tech: "cutting-edge technology visual language",
+    luxury: "premium luxury and high-end sophistication",
+    bold: "bold energetic graphic design language",
+    minimal: "clean Scandinavian minimalist design",
+  };
+  const brandVisual = opts.visualStyle ? (visualStyleMap[opts.visualStyle] ?? opts.visualStyle) : "contemporary brand aesthetic";
+
+  const parts: string[] = [
+    `Professional ${platformNote}`,
+    opts.industry ? `crafted for a ${opts.industry} brand` : "",
+    styleDescriptions[opts.stylePreset],
+    colorClue,
+    brandVisual,
+    opts.postConcept ? `Visual story: ${opts.postConcept.slice(0, 140)}.` : "",
+    opts.personality ? `Brand character: ${opts.personality.slice(0, 90)}.` : "",
+    "Commercial photography quality, studio-grade three-point lighting, ultra-sharp 8K detail, award-winning advertising composition.",
+    "Subject positioned in the left-center 65% of the frame — clean open space in the upper-right quadrant reserved for brand logo overlay.",
+    "No embedded logos, watermarks, or text in the raw image.",
+    opts.overlayText
+      ? `Render the text "${opts.overlayText}" prominently in the design using elegant on-brand typography, perfectly legible at social media resolution.`
+      : "",
+  ];
+
+  return parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -206,49 +280,104 @@ function ImageGenDialog({
   open,
   onClose,
   onGenerate,
+  onDownload,
   defaultPrompt,
   generating,
   brandLogoUrl,
   brandName,
+  brandKit,
+  brandIndustry,
+  brandDescription,
+  postConcept,
+  postPlatform,
+  hasExistingImage,
 }: {
   open: boolean;
   onClose: () => void;
   onGenerate: (opts: ImageGenOptions) => void;
+  onDownload: () => void;
   defaultPrompt: string;
   generating: boolean;
   brandLogoUrl?: string | null;
   brandName: string;
+  brandKit?: BrandKitData | null;
+  brandIndustry?: string;
+  brandDescription?: string;
+  postConcept?: string;
+  postPlatform?: string;
+  hasExistingImage: boolean;
 }) {
-  const [customPrompt, setCustomPrompt] = useState(defaultPrompt);
+  const [stylePreset, setStylePreset] = useState<StylePreset>("bold");
   const [overlayText, setOverlayText] = useState("");
   const [size, setSize] = useState<ImageSize>("1024x1024");
   const [model, setModel] = useState<"nano" | "mini" | "pro">("pro");
   const [includeLogo, setIncludeLogo] = useState(!!brandLogoUrl);
+  const [promptOverride, setPromptOverride] = useState("");
+  const [promptEdited, setPromptEdited] = useState(false);
+
+  const autoPrompt = buildAutoPrompt({
+    brandName,
+    brandDescription,
+    industry: brandIndustry,
+    personality: brandKit?.personality,
+    visualStyle: brandKit?.visualStyle,
+    primaryColor: brandKit?.colorPalette?.primary,
+    secondaryColor: brandKit?.colorPalette?.secondary,
+    postConcept: postConcept ?? defaultPrompt,
+    platform: postPlatform,
+    stylePreset,
+    overlayText: overlayText || undefined,
+  });
+
+  const currentPrompt = promptEdited ? promptOverride : autoPrompt;
 
   if (!open) return null;
 
+  const stylePresets: { id: StylePreset; label: string; emoji: string }[] = [
+    { id: "minimalist", label: "Minimalist", emoji: "○" },
+    { id: "bold",       label: "Bold",       emoji: "◆" },
+    { id: "luxury",     label: "Luxury",     emoji: "✦" },
+    { id: "futuristic", label: "Futuristic", emoji: "◈" },
+    { id: "cinematic",  label: "Cinematic",  emoji: "◉" },
+    { id: "natural",    label: "Natural",    emoji: "❋" },
+    { id: "vibrant",    label: "Vibrant",    emoji: "★" },
+    { id: "moody",      label: "Moody",      emoji: "◑" },
+  ];
+
   const models: { id: "nano" | "mini" | "pro"; label: string; desc: string; icon: React.ElementType }[] = [
-    { id: "nano", label: "Nano", desc: "Fast, direct", icon: Zap },
+    { id: "nano", label: "Nano", desc: "Fast", icon: Zap },
     { id: "mini", label: "Mini", desc: "Enhanced", icon: Sparkles },
-    { id: "pro", label: "GPT Pro", desc: "Best quality", icon: Wand2 },
+    { id: "pro",  label: "GPT Pro", desc: "Best", icon: Wand2 },
   ];
 
   const sizes: { id: ImageSize; label: string; sublabel: string; ratio: "portrait" | "square" | "landscape" | "auto" }[] = [
-    { id: "1024x1536", label: "Story", sublabel: "9:16", ratio: "portrait" },
-    { id: "1024x1024", label: "Square", sublabel: "1:1", ratio: "square" },
-    { id: "1536x1024", label: "Wide", sublabel: "16:9", ratio: "landscape" },
-    { id: "auto",      label: "Auto", sublabel: "AI picks", ratio: "auto" },
+    { id: "1024x1536", label: "Story",  sublabel: "9:16",      ratio: "portrait" },
+    { id: "1024x1024", label: "Square", sublabel: "1:1",       ratio: "square" },
+    { id: "1536x1024", label: "Wide",   sublabel: "16:9",      ratio: "landscape" },
+    { id: "auto",      label: "Auto",   sublabel: "AI picks",  ratio: "auto" },
   ];
+
+  function handleStyleChange(s: StylePreset) {
+    setStylePreset(s);
+    setPromptEdited(false);
+  }
+
+  function handleOverlayChange(v: string) {
+    setOverlayText(v);
+    setPromptEdited(false);
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-background rounded-2xl border border-card-border shadow-2xl w-full max-w-lg p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div className="bg-background rounded-2xl border border-card-border shadow-2xl w-full max-w-xl p-6 space-y-5 max-h-[92vh] overflow-y-auto">
+
+        {/* Header */}
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
               <Wand2 className="w-4 h-4 text-primary" /> Generate AI Image
             </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Describe what you want — no restrictions</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Prompt auto-crafted from your brand analysis</p>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="w-5 h-5" />
@@ -267,39 +396,80 @@ function ImageGenDialog({
             <img src={brandLogoUrl} alt="Logo" className="w-8 h-8 rounded-lg object-cover border border-border flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-foreground">Use logo as visual reference</p>
-              <p className="text-[11px] text-muted-foreground">Background is removed · logo guides AI style & placement</p>
+              <p className="text-[11px] text-muted-foreground">Background stripped · logo guides AI style & placement</p>
             </div>
             <div className={cn("w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all", includeLogo ? "border-primary bg-primary" : "border-muted-foreground")} />
           </div>
         )}
 
-        {/* Main design prompt */}
+        {/* Style preset selector */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">Design Description</label>
-          <textarea
-            className="w-full px-4 py-3 rounded-xl border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-            rows={4}
-            value={customPrompt}
-            onChange={(e) => setCustomPrompt(e.target.value)}
-            placeholder="Describe the visual: style, mood, colors, subject, composition..."
-          />
+          <label className="block text-sm font-medium text-foreground mb-2">Visual Style</label>
+          <div className="grid grid-cols-4 gap-1.5">
+            {stylePresets.map(({ id, label, emoji }) => (
+              <button
+                key={id}
+                onClick={() => handleStyleChange(id)}
+                className={cn(
+                  "flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border text-[11px] font-medium transition-all",
+                  stylePreset === id
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                )}
+              >
+                <span className="text-base leading-none">{emoji}</span>
+                <span className="font-semibold">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Overlay text */}
+        {/* Text in design (Arabic / English) */}
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">
-            Text in Design <span className="text-muted-foreground font-normal">(optional)</span>
+            Text in Design
+            <span className="text-muted-foreground font-normal text-xs ml-1.5">(Arabic or English — optional)</span>
           </label>
           <input
             type="text"
+            dir="auto"
             className="w-full px-4 py-2.5 rounded-xl border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             value={overlayText}
-            onChange={(e) => setOverlayText(e.target.value)}
-            placeholder="e.g. 'New Collection 2025' or brand tagline to render in the image..."
+            onChange={(e) => handleOverlayChange(e.target.value)}
+            placeholder='e.g. "عرض حصري" or "New Collection 2025"'
           />
         </div>
 
-        {/* Canvas size – aspect ratio icons */}
+        {/* Auto-generated prompt (editable) */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              AI Prompt
+              {!promptEdited && (
+                <span className="text-[10px] font-normal text-primary/70 bg-primary/10 px-1.5 py-0.5 rounded-full">Auto-generated</span>
+              )}
+            </label>
+            {promptEdited && (
+              <button
+                onClick={() => setPromptEdited(false)}
+                className="text-[11px] text-primary hover:text-primary/80 transition-colors"
+              >
+                ↺ Reset to auto
+              </button>
+            )}
+          </div>
+          <textarea
+            className="w-full px-4 py-3 rounded-xl border border-input bg-background text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none font-mono leading-relaxed"
+            rows={6}
+            value={currentPrompt}
+            onChange={(e) => { setPromptOverride(e.target.value); setPromptEdited(true); }}
+            placeholder="Describe the visual: style, mood, colors, subject, composition..."
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">You can edit the prompt directly — changes override the auto-generated version.</p>
+        </div>
+
+        {/* Canvas size */}
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">Canvas Size</label>
           <div className="grid grid-cols-4 gap-2">
@@ -324,7 +494,7 @@ function ImageGenDialog({
 
         {/* AI model */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">AI Prompt Quality</label>
+          <label className="block text-sm font-medium text-foreground mb-2">AI Quality</label>
           <div className="grid grid-cols-3 gap-2">
             {models.map(({ id, label, desc, icon: Icon }) => (
               <button
@@ -345,13 +515,19 @@ function ImageGenDialog({
           </div>
         </div>
 
+        {/* Action buttons: Generate + Download */}
         <div className="flex items-center gap-3 pt-1">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-            Cancel
-          </button>
+          {hasExistingImage && (
+            <button
+              onClick={() => { onClose(); onDownload(); }}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              <Download className="w-4 h-4" /> Download
+            </button>
+          )}
           <button
-            onClick={() => onGenerate({ customPrompt, size, model, overlayText, includeLogo })}
-            disabled={generating || !customPrompt.trim()}
+            onClick={() => onGenerate({ customPrompt: currentPrompt, size, model, overlayText, includeLogo })}
+            disabled={generating || !currentPrompt.trim()}
             className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
           >
             {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -365,11 +541,14 @@ function ImageGenDialog({
 
 // ─── Post Card ────────────────────────────────────────────────────────────────
 
-function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, onRegenerate, onGenerateImage }: {
+function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, brandKit, brandIndustry, brandDescription, onSave, onRegenerate, onGenerateImage }: {
   post: SocialPost;
   brandLogoUrl?: string | null;
   brandName: string;
   brandPrimaryColor: string;
+  brandKit?: BrandKitData | null;
+  brandIndustry?: string;
+  brandDescription?: string;
   onSave: (id: number, data: Partial<SocialPost>) => Promise<void>;
   onRegenerate: (id: number) => Promise<void>;
   onGenerateImage: (id: number, opts: ImageGenOptions) => Promise<SocialPost | undefined>;
@@ -516,10 +695,17 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
         open={showImageDialog}
         onClose={() => setShowImageDialog(false)}
         onGenerate={handleGenerateWithOptions}
+        onDownload={downloadImage}
         defaultPrompt={post.imagePrompt}
         generating={generatingImage}
         brandLogoUrl={brandLogoUrl}
         brandName={brandName}
+        brandKit={brandKit}
+        brandIndustry={brandIndustry}
+        brandDescription={brandDescription}
+        postConcept={post.hook}
+        postPlatform={post.platform}
+        hasExistingImage={!!(compositeImageUrl ?? post.imageUrl)}
       />
 
       <div className="rounded-xl border border-card-border bg-card overflow-hidden flex flex-col">
@@ -532,11 +718,6 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
               onClick={() => setImageExpanded((v) => !v)}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/5 to-transparent pointer-events-none" />
-            {compositeImageUrl && (
-              <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/90 text-white text-[11px] font-semibold backdrop-blur-sm">
-                <CheckCircle2 className="w-3 h-3" /> Logo Embedded
-              </div>
-            )}
             {compositing && (
               <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/90 text-white text-[11px] font-semibold backdrop-blur-sm">
                 <Loader2 className="w-3 h-3 animate-spin" /> Adding logo...
@@ -559,12 +740,9 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
                     {compositing ? "Adding logo..." : "Embed Logo"}
                   </button>
                 ) : (
-                  <button
-                    onClick={downloadImage}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/90 text-slate-800 text-xs font-semibold hover:bg-white transition-colors backdrop-blur-sm shadow-sm"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Download
-                  </button>
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/90 text-white text-[11px] font-semibold backdrop-blur-sm">
+                    <CheckCircle2 className="w-3 h-3" /> Logo Embedded
+                  </span>
                 )}
               </div>
               <button
@@ -573,26 +751,27 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs font-medium backdrop-blur-sm transition-colors disabled:opacity-60"
               >
                 {generatingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                {generatingImage ? "Generating..." : "Regenerate"}
+                {generatingImage ? "Generating..." : "Generate / Download"}
               </button>
             </div>
           </div>
         ) : (
-          <div className="w-full aspect-video bg-gradient-to-br from-muted/60 to-muted/30 flex flex-col items-center justify-center gap-3 border-b border-card-border">
-            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <ImageIcon className="w-7 h-7 text-primary/50" />
+          <button
+            onClick={() => setShowImageDialog(true)}
+            disabled={generatingImage}
+            className="w-full aspect-video bg-gradient-to-br from-muted/60 to-muted/30 flex flex-col items-center justify-center gap-3 border-b border-card-border hover:from-primary/5 hover:to-primary/10 transition-colors group"
+          >
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+              {generatingImage
+                ? <Loader2 className="w-7 h-7 text-primary animate-spin" />
+                : <Sparkles className="w-7 h-7 text-primary/60 group-hover:text-primary transition-colors" />
+              }
             </div>
-            <p className="text-xs text-muted-foreground max-w-[200px] text-center">{post.imagePrompt.slice(0, 60)}...</p>
-            <button
-              onClick={() => setShowImageDialog(true)}
-              disabled={generatingImage}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 shadow-sm"
-            >
-              {generatingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            <p className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
               {generatingImage ? "Generating AI Image..." : "Generate AI Image"}
-            </button>
-            <p className="text-[11px] text-muted-foreground">AI generates image + auto-embeds brand logo</p>
-          </div>
+            </p>
+            <p className="text-[11px] text-muted-foreground">Click to open prompt builder · auto-embeds brand logo</p>
+          </button>
         )}
 
         {/* Card header */}
@@ -961,10 +1140,13 @@ export default function CampaignWorkspace() {
     );
   }
 
-  const brandInfo = (campaign as unknown as { brand?: { logoUrl?: string; companyName?: string; primaryColor?: string } })?.brand;
+  const brandInfo = (campaign as unknown as { brand?: { logoUrl?: string; companyName?: string; companyDescription?: string; industry?: string; primaryColor?: string; brandKit?: BrandKitData } })?.brand;
   const brandLogoUrl = brandInfo?.logoUrl ?? undefined;
   const brandName = brandInfo?.companyName ?? "Brand";
   const brandPrimaryColor = brandInfo?.primaryColor ?? "#6366F1";
+  const brandKit = brandInfo?.brandKit ?? null;
+  const brandIndustry = brandInfo?.industry;
+  const brandDescription = brandInfo?.companyDescription;
 
   type CampaignDay = { day: number; marketingAngle: string; postConcept: string; objective: string; cta: string };
   type CampaignPost = SocialPost & { day: number };
@@ -1046,6 +1228,9 @@ export default function CampaignWorkspace() {
                 brandLogoUrl={brandLogoUrl}
                 brandName={brandName}
                 brandPrimaryColor={brandPrimaryColor}
+                brandKit={brandKit}
+                brandIndustry={brandIndustry}
+                brandDescription={brandDescription}
                 onSave={handleSavePost}
                 onRegenerate={handleRegeneratePost}
                 onGenerateImage={handleGenerateImage}
