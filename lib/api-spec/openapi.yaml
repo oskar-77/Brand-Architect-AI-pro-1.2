@@ -315,6 +315,11 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePostImageBody"
       responses:
         "200":
           description: Image generated and saved
@@ -654,6 +659,21 @@ components:
           type: string
         platform:
           type: string
+
+    GeneratePostImageBody:
+      type: object
+      properties:
+        customPrompt:
+          type: string
+          description: Custom image prompt from the user (overrides the post imagePrompt)
+        size:
+          type: string
+          enum: ["256x256", "512x512", "1024x1024"]
+          description: Image output size
+        model:
+          type: string
+          enum: ["nano", "mini", "pro"]
+          description: AI model quality for prompt enhancement
 
     Campaign:
       type: object

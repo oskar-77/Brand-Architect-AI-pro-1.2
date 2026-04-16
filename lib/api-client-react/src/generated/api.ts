@@ -26,6 +26,7 @@ import type {
   ErrorResponse,
   GenerateBrandKitBody,
   GenerateCampaignBody,
+  GeneratePostImageBody,
   HealthStatus,
   SocialPost,
   UpdateBrandBody,
@@ -1055,11 +1056,14 @@ export const getGeneratePostImageUrl = (id: number) => {
 
 export const generatePostImage = async (
   id: number,
+  generatePostImageBody: GeneratePostImageBody,
   options?: RequestInit,
 ): Promise<SocialPost> => {
   return customFetch<SocialPost>(getGeneratePostImageUrl(id), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(generatePostImageBody),
   });
 };
 
@@ -1070,14 +1074,14 @@ export const getGeneratePostImageMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof generatePostImage>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<GeneratePostImageBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof generatePostImage>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<GeneratePostImageBody> },
   TContext
 > => {
   const mutationKey = ["generatePostImage"];
@@ -1091,11 +1095,11 @@ export const getGeneratePostImageMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof generatePostImage>>,
-    { id: number }
+    { id: number; data: BodyType<GeneratePostImageBody> }
   > = (props) => {
-    const { id } = props ?? {};
+    const { id, data } = props ?? {};
 
-    return generatePostImage(id, requestOptions);
+    return generatePostImage(id, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -1104,7 +1108,7 @@ export const getGeneratePostImageMutationOptions = <
 export type GeneratePostImageMutationResult = NonNullable<
   Awaited<ReturnType<typeof generatePostImage>>
 >;
-
+export type GeneratePostImageMutationBody = BodyType<GeneratePostImageBody>;
 export type GeneratePostImageMutationError = ErrorType<ErrorResponse>;
 
 /**
@@ -1117,14 +1121,14 @@ export const useGeneratePostImage = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof generatePostImage>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<GeneratePostImageBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof generatePostImage>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<GeneratePostImageBody> },
   TContext
 > => {
   return useMutation(getGeneratePostImageMutationOptions(options));

@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, campaignsTable, postsTable } from "@workspace/db";
+import { db, campaignsTable, postsTable, brandsTable } from "@workspace/db";
 import {
   GetCampaignParams,
 } from "@workspace/api-zod";
 import { asyncHandler } from "../lib/asyncHandler";
+import type { BrandKit } from "../lib/ai";
 
 const router: IRouter = Router();
 
@@ -21,11 +22,16 @@ router.get("/campaigns/:id", asyncHandler(async (req, res) => {
     return;
   }
 
+  const [brand] = await db.select().from(brandsTable).where(eq(brandsTable.id, campaign.brandId));
+
   const posts = await db
     .select()
     .from(postsTable)
     .where(eq(postsTable.campaignId, params.data.id))
     .orderBy(postsTable.day);
+
+  const kit = brand?.brandKit as BrandKit | null;
+  const primaryColor = kit?.colorPalette?.primary ?? "#6366F1";
 
   res.json({
     id: campaign.id,
@@ -38,6 +44,11 @@ router.get("/campaigns/:id", asyncHandler(async (req, res) => {
       createdAt: p.createdAt.toISOString(),
       updatedAt: p.updatedAt.toISOString(),
     })),
+    brand: brand ? {
+      companyName: brand.companyName,
+      logoUrl: brand.logoUrl,
+      primaryColor,
+    } : null,
     createdAt: campaign.createdAt.toISOString(),
     updatedAt: campaign.updatedAt.toISOString(),
   });

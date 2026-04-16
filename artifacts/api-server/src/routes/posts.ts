@@ -58,10 +58,40 @@ router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
   const [post] = await db.select().from(postsTable).where(eq(postsTable.id, params.data.id));
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
 
-  // Enhance the prompt with composition instructions
-  const enhancedPrompt = `${post.imagePrompt} Professional composition: subject fills left 75% of frame, top-right corner (25%) kept clean and minimal for brand logo placement. Ultra high quality commercial photography, no text, no watermarks, no logos embedded in image.`;
+  const body = req.body as { customPrompt?: string; size?: "256x256" | "512x512" | "1024x1024"; model?: "nano" | "mini" | "pro" };
+  const size = body.size ?? "1024x1024";
+  const model = body.model ?? "pro";
 
-  const imageBuffer = await generateImageBuffer(enhancedPrompt, "1024x1024");
+  // Use user's custom prompt if provided, otherwise use post's imagePrompt
+  let basePrompt = body.customPrompt?.trim() || post.imagePrompt;
+
+  // Enhance prompt quality based on model selection
+  let finalPrompt: string;
+  if (model === "nano") {
+    finalPrompt = basePrompt;
+  } else if (model === "mini") {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      max_completion_tokens: 300,
+      messages: [{
+        role: "user",
+        content: `Enhance this image prompt to be more vivid and detailed for AI image generation. Return only the enhanced prompt, nothing else:\n\n${basePrompt}`,
+      }],
+    });
+    finalPrompt = response.choices[0]?.message?.content?.trim() ?? basePrompt;
+  } else {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 400,
+      messages: [{
+        role: "user",
+        content: `You are a professional art director. Enhance this image prompt with rich visual details, lighting, mood, and composition to produce a stunning commercial-quality image. Return only the enhanced prompt, nothing else:\n\n${basePrompt}`,
+      }],
+    });
+    finalPrompt = response.choices[0]?.message?.content?.trim() ?? basePrompt;
+  }
+
+  const imageBuffer = await generateImageBuffer(finalPrompt, size as "256x256" | "512x512" | "1024x1024");
   const imageUrl = `data:image/png;base64,${imageBuffer.toString("base64")}`;
 
   const [updated] = await db

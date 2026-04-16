@@ -10,7 +10,7 @@ import {
   MessageSquare, Users, Edit, X, Image as ImageIcon, Plus, BookOpen,
   Type, Target, Star, Copy, CheckCircle2, Wand2, Zap, Quote, Tag,
   Heart, Shield, RefreshCw, FileText, Instagram, Linkedin, Twitter, Facebook,
-  CheckSquare, Square, Layers, BarChart2,
+  CheckSquare, Square, Layers, BarChart2, Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
@@ -122,6 +122,7 @@ export default function BrandKit() {
   const [activeTab, setActiveTab] = useState<"identity" | "content" | "strategy" | "story">("identity");
   const [generatingStory, setGeneratingStory] = useState(false);
   const [storyError, setStoryError] = useState<string | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const briefFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: brand, isLoading } = useGetBrand(brandId, {
@@ -200,6 +201,589 @@ export default function BrandKit() {
       setStoryError("Failed to regenerate story. Please try again.");
     } finally {
       setGeneratingStory(false);
+    }
+  }
+
+  async function handleExportPdf() {
+    if (!kit || !brand) return;
+    setExportingPdf(true);
+    try {
+      const { default: jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+      const W = 210;
+      const H = 297;
+      const primary = kit.colorPalette?.primary ?? "#6366F1";
+      const secondary = kit.colorPalette?.secondary ?? "#8B5CF6";
+      const accent = kit.colorPalette?.accent ?? "#EC4899";
+      const bg = kit.colorPalette?.background ?? "#FFFFFF";
+      const textCol = kit.colorPalette?.text ?? "#1E293B";
+      const neutral = kit.colorPalette?.neutral ?? "#94A3B8";
+
+      function hexToRgb(hex: string): [number, number, number] {
+        const clean = hex.replace("#", "");
+        const r = parseInt(clean.substring(0, 2), 16) || 0;
+        const g = parseInt(clean.substring(2, 4), 16) || 0;
+        const b = parseInt(clean.substring(4, 6), 16) || 0;
+        return [r, g, b];
+      }
+
+      function setFill(hex: string) { doc.setFillColor(...hexToRgb(hex)); }
+      function setDraw(hex: string) { doc.setDrawColor(...hexToRgb(hex)); }
+      function setTextColor(hex: string) { doc.setTextColor(...hexToRgb(hex)); }
+
+      function sectionHeader(title: string, y: number) {
+        setFill(primary);
+        doc.rect(14, y, 4, 6, "F");
+        setTextColor(textCol);
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text(title.toUpperCase(), 22, y + 5);
+        return y + 12;
+      }
+
+      function bodyText(text: string, x: number, y: number, maxW: number, lineHeight = 5): number {
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        setTextColor(neutral);
+        const lines = doc.splitTextToSize(text || "", maxW);
+        doc.text(lines, x, y);
+        return y + lines.length * lineHeight;
+      }
+
+      // ── PAGE 1: COVER ──────────────────────────────────────────────────────
+      setFill(primary);
+      doc.rect(0, 0, W, H * 0.6, "F");
+
+      // Decorative circles
+      const [pr, pg, pb] = hexToRgb(primary);
+      doc.setFillColor(Math.min(pr + 30, 255), Math.min(pg + 30, 255), Math.min(pb + 30, 255));
+      doc.circle(W - 30, 30, 50, "F");
+      doc.setFillColor(Math.max(pr - 30, 0), Math.max(pg - 30, 0), Math.max(pb - 30, 0));
+      doc.circle(20, H * 0.55, 40, "F");
+
+      // Logo area
+      if (brand.logoUrl && brand.logoUrl.startsWith("data:image")) {
+        try {
+          const format = brand.logoUrl.includes("data:image/png") ? "PNG" : "JPEG";
+          doc.addImage(brand.logoUrl, format, 14, 20, 40, 40, undefined, "FAST");
+        } catch {
+          setTextColor("#FFFFFF");
+          doc.setFontSize(28);
+          doc.setFont("helvetica", "bold");
+          doc.text(brand.companyName.substring(0, 2).toUpperCase(), 14, 55);
+        }
+      } else {
+        setFill("#FFFFFF");
+        doc.roundedRect(14, 20, 40, 40, 6, 6, "F");
+        setTextColor(primary);
+        doc.setFontSize(22);
+        doc.setFont("helvetica", "bold");
+        const initials = brand.companyName.split(/\s+/).slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
+        doc.text(initials, 34, 45, { align: "center" });
+      }
+
+      // Brand name
+      setTextColor("#FFFFFF");
+      doc.setFontSize(32);
+      doc.setFont("helvetica", "bold");
+      doc.text(brand.companyName.toUpperCase(), 14, 85);
+
+      // Industry
+      doc.setFontSize(13);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(220, 220, 240);
+      doc.text(brand.industry, 14, 95);
+
+      // Tagline
+      if (kit.taglines && kit.taglines.length > 0) {
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bolditalic");
+        setTextColor("#FFFFFF");
+        const taglineLines = doc.splitTextToSize(`"${kit.taglines[0]}"`, W - 28);
+        doc.text(taglineLines, 14, 115);
+      }
+
+      // Document title
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(190, 190, 220);
+      doc.text("Brand Identity Guidelines", 14, H * 0.6 - 10);
+
+      // Bottom section (white)
+      setFill("#FFFFFF");
+      doc.rect(0, H * 0.6, W, H * 0.4, "F");
+
+      // Quick summary boxes
+      const summaryY = H * 0.6 + 15;
+      const boxes = [
+        { label: "Visual Style", value: kit.visualStyle?.toUpperCase() ?? "MINIMAL", color: primary },
+        { label: "Personality", value: (kit.personality ?? "").substring(0, 30) + "...", color: secondary },
+        { label: "Tone of Voice", value: (kit.toneOfVoice ?? "").substring(0, 30) + "...", color: accent },
+      ];
+      const boxW = (W - 28 - 10) / 3;
+      boxes.forEach((box, i) => {
+        const bx = 14 + i * (boxW + 5);
+        setFill(box.color);
+        doc.roundedRect(bx, summaryY, boxW, 4, 1, 1, "F");
+        setTextColor(box.color);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.text(box.label.toUpperCase(), bx, summaryY + 12);
+        setTextColor(textCol);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        const valLines = doc.splitTextToSize(box.value, boxW - 2);
+        doc.text(valLines.slice(0, 2), bx, summaryY + 18);
+      });
+
+      // Footer
+      setTextColor(neutral);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${brand.companyName} · Confidential Brand Identity Document`, W / 2, H - 10, { align: "center" });
+
+      // ── PAGE 2: COLOR SYSTEM ───────────────────────────────────────────────
+      doc.addPage();
+
+      setFill(primary);
+      doc.rect(0, 0, W, 18, "F");
+      setTextColor("#FFFFFF");
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text(brand.companyName.toUpperCase(), 14, 11);
+      setTextColor("#FFFFFF");
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text("BRAND COLOR SYSTEM", W - 14, 11, { align: "right" });
+
+      let yPos = 35;
+      yPos = sectionHeader("Color Palette", yPos);
+
+      const colorEntries = Object.entries(kit.colorPalette ?? {});
+      const swatchSize = 28;
+      const swatchCols = 5;
+      const swatchGap = (W - 28) / swatchCols;
+
+      colorEntries.forEach(([name, hex], i) => {
+        const col = i % swatchCols;
+        const row = Math.floor(i / swatchCols);
+        const sx = 14 + col * swatchGap;
+        const sy = yPos + row * (swatchSize + 22);
+
+        setFill(hex as string);
+        setDraw("#E2E8F0");
+        doc.roundedRect(sx, sy, swatchSize, swatchSize, 4, 4, "FD");
+
+        setTextColor(textCol);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.text(name.charAt(0).toUpperCase() + name.slice(1), sx, sy + swatchSize + 6);
+        setTextColor(neutral);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.text((hex as string).toUpperCase(), sx, sy + swatchSize + 12);
+      });
+
+      const swatchRows = Math.ceil(colorEntries.length / swatchCols);
+      yPos += swatchRows * (swatchSize + 22) + 15;
+
+      // Color usage rules
+      yPos = sectionHeader("Color Usage Guide", yPos);
+
+      const usageRules = [
+        { color: primary, label: "Primary", usage: "Main brand color — use for CTAs, headlines, and key UI elements" },
+        { color: secondary, label: "Secondary", usage: "Supporting color — use for backgrounds, badges, and secondary buttons" },
+        { color: accent, label: "Accent", usage: "Highlight color — use sparingly for emphasis and interactive states" },
+        { color: bg, label: "Background", usage: "Page/section background — use for large areas and containers" },
+        { color: textCol, label: "Text", usage: "Primary text — use for body copy, headings, and labels" },
+      ];
+
+      usageRules.forEach((rule, i) => {
+        const rx = 14;
+        const ry = yPos + i * 14;
+        setFill(rule.color);
+        doc.roundedRect(rx, ry - 3.5, 8, 8, 2, 2, "F");
+        setTextColor(textCol);
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bold");
+        doc.text(rule.label, rx + 12, ry + 1);
+        setTextColor(neutral);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.text(rule.usage, rx + 40, ry + 1);
+      });
+
+      // Page footer
+      yPos = H - 15;
+      setDraw("#E2E8F0");
+      doc.setLineWidth(0.3);
+      doc.line(14, yPos, W - 14, yPos);
+      setTextColor(neutral);
+      doc.setFontSize(7.5);
+      doc.text(`${brand.companyName} Brand Identity · Page 2`, W / 2, yPos + 6, { align: "center" });
+
+      // ── PAGE 3: TYPOGRAPHY & VISUAL IDENTITY ──────────────────────────────
+      doc.addPage();
+
+      setFill(primary);
+      doc.rect(0, 0, W, 18, "F");
+      setTextColor("#FFFFFF");
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text(brand.companyName.toUpperCase(), 14, 11);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text("TYPOGRAPHY & VISUAL IDENTITY", W - 14, 11, { align: "right" });
+
+      yPos = 35;
+      yPos = sectionHeader("Typography System", yPos);
+
+      // Heading example
+      setFill("#F8FAFC");
+      setDraw("#E2E8F0");
+      doc.roundedRect(14, yPos, W - 28, 28, 4, 4, "FD");
+      setTextColor(textCol);
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.text(brand.companyName.toUpperCase(), 22, yPos + 12);
+      setTextColor(neutral);
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.text("DISPLAY / HEADLINE · Weight 900 · Tracking -2 · Used for hero text and brand name", 22, yPos + 22);
+      yPos += 33;
+
+      setFill("#F8FAFC");
+      doc.roundedRect(14, yPos, W - 28, 22, 4, 4, "FD");
+      setTextColor(textCol);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text(`${brand.industry} Excellence Redefined`, 22, yPos + 10);
+      setTextColor(neutral);
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.text("SECTION HEADING · Weight 700 · Normal tracking · H2/H3 level", 22, yPos + 18);
+      yPos += 27;
+
+      if (brand.companyDescription) {
+        setFill("#F8FAFC");
+        doc.roundedRect(14, yPos, W - 28, 22, 4, 4, "FD");
+        setTextColor(textCol);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        const bodyLines = doc.splitTextToSize(brand.companyDescription.substring(0, 120), W - 44);
+        doc.text(bodyLines.slice(0, 2), 22, yPos + 8);
+        setTextColor(neutral);
+        doc.setFontSize(7.5);
+        doc.text("BODY TEXT · Weight 400 · 16px base · Normal spacing · Line height 1.6", 22, yPos + 18);
+        yPos += 27;
+      }
+
+      if (kit.typographyRecommendations) {
+        yPos += 5;
+        setFill("#EFF6FF");
+        setDraw("#BFDBFE");
+        doc.roundedRect(14, yPos, W - 28, 22, 4, 4, "FD");
+        setTextColor(textCol);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.text("TYPOGRAPHY RECOMMENDATIONS", 22, yPos + 7);
+        setTextColor(neutral);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        const typoLines = doc.splitTextToSize(kit.typographyRecommendations, W - 44);
+        doc.text(typoLines.slice(0, 2), 22, yPos + 14);
+        yPos += 27;
+      }
+
+      yPos += 5;
+      yPos = sectionHeader("Logo Usage Patterns", yPos);
+
+      // Logo on different backgrounds
+      const logoPatterns = [
+        { bg: "#FFFFFF", label: "On White", border: "#E2E8F0" },
+        { bg: primary, label: "On Primary", border: primary },
+        { bg: textCol, label: "On Dark", border: textCol },
+        { bg: secondary, label: "On Secondary", border: secondary },
+      ];
+
+      const patternW = (W - 28 - 15) / 4;
+      logoPatterns.forEach((p, i) => {
+        const px = 14 + i * (patternW + 5);
+        const py = yPos;
+        setFill(p.bg);
+        setDraw(p.border);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(px, py, patternW, patternW * 0.75, 4, 4, "FD");
+
+        if (brand.logoUrl && brand.logoUrl.startsWith("data:image")) {
+          try {
+            const fmt = brand.logoUrl.includes("data:image/png") ? "PNG" : "JPEG";
+            const lw = patternW * 0.6;
+            const lh = patternW * 0.3;
+            doc.addImage(brand.logoUrl, fmt, px + (patternW - lw) / 2, py + (patternW * 0.75 - lh) / 2, lw, lh, undefined, "FAST");
+          } catch {
+            const textColor = p.bg === "#FFFFFF" ? primary : "#FFFFFF";
+            setTextColor(textColor);
+            doc.setFontSize(14);
+            doc.setFont("helvetica", "bold");
+            const initials = brand.companyName.split(/\s+/).slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
+            doc.text(initials, px + patternW / 2, py + patternW * 0.4, { align: "center" });
+          }
+        } else {
+          const textColor = p.bg === "#FFFFFF" ? primary : "#FFFFFF";
+          setTextColor(textColor);
+          doc.setFontSize(14);
+          doc.setFont("helvetica", "bold");
+          const initials = brand.companyName.split(/\s+/).slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
+          doc.text(initials, px + patternW / 2, py + patternW * 0.4, { align: "center" });
+        }
+
+        setTextColor(neutral);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.text(p.label, px + patternW / 2, py + patternW * 0.75 + 7, { align: "center" });
+      });
+
+      // Page footer
+      yPos = H - 15;
+      setDraw("#E2E8F0");
+      doc.setLineWidth(0.3);
+      doc.line(14, yPos, W - 14, yPos);
+      setTextColor(neutral);
+      doc.setFontSize(7.5);
+      doc.text(`${brand.companyName} Brand Identity · Page 3`, W / 2, yPos + 6, { align: "center" });
+
+      // ── PAGE 4: BRAND PERSONALITY & GUIDELINES ────────────────────────────
+      doc.addPage();
+
+      setFill(primary);
+      doc.rect(0, 0, W, 18, "F");
+      setTextColor("#FFFFFF");
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text(brand.companyName.toUpperCase(), 14, 11);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text("BRAND PERSONALITY & GUIDELINES", W - 14, 11, { align: "right" });
+
+      yPos = 35;
+      yPos = sectionHeader("Mission & Vision", yPos);
+
+      if (kit.missionStatement) {
+        setFill("#F0FDF4");
+        setDraw("#BBF7D0");
+        doc.roundedRect(14, yPos, W - 28, 20, 3, 3, "FD");
+        setTextColor(textCol);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.text("MISSION", 22, yPos + 7);
+        setTextColor(textCol);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bolditalic");
+        const mLines = doc.splitTextToSize(`"${kit.missionStatement}"`, W - 44);
+        doc.text(mLines.slice(0, 2), 22, yPos + 14);
+        yPos += 25;
+      }
+
+      if (kit.visionStatement) {
+        setFill("#FFF7ED");
+        setDraw("#FED7AA");
+        doc.roundedRect(14, yPos, W - 28, 20, 3, 3, "FD");
+        setTextColor(textCol);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.text("VISION", 22, yPos + 7);
+        setTextColor(textCol);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bolditalic");
+        const vLines = doc.splitTextToSize(`"${kit.visionStatement}"`, W - 44);
+        doc.text(vLines.slice(0, 2), 22, yPos + 14);
+        yPos += 25;
+      }
+
+      yPos += 5;
+      yPos = sectionHeader("Brand Positioning & Personality", yPos);
+
+      setTextColor(textCol);
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "bold");
+      doc.text("Positioning:", 14, yPos + 1);
+      yPos = bodyText(kit.positioning ?? "", 14, yPos + 6, W - 28);
+
+      yPos += 5;
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "bold");
+      setTextColor(textCol);
+      doc.text("Personality:", 14, yPos + 1);
+      yPos = bodyText(kit.personality ?? "", 14, yPos + 6, W - 28);
+
+      yPos += 5;
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "bold");
+      setTextColor(textCol);
+      doc.text("Tone of Voice:", 14, yPos + 1);
+      yPos = bodyText(kit.toneOfVoice ?? "", 14, yPos + 6, W - 28);
+
+      // Communication Dos and Don'ts
+      if ((kit.dosCommunication?.length ?? 0) > 0 || (kit.dontsCommunication?.length ?? 0) > 0) {
+        yPos += 8;
+        yPos = sectionHeader("Communication Guide", yPos);
+
+        const halfW = (W - 28 - 5) / 2;
+
+        // Dos
+        setFill("#F0FDF4");
+        setDraw("#BBF7D0");
+        doc.roundedRect(14, yPos, halfW, 4, 1, 1, "F");
+        setTextColor("#16A34A");
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.text("✓  DO", 14, yPos + 2.5);
+        yPos += 8;
+        (kit.dosCommunication ?? []).slice(0, 5).forEach((item) => {
+          setTextColor("#15803D");
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "normal");
+          const lines = doc.splitTextToSize(`• ${item}`, halfW - 4);
+          doc.text(lines.slice(0, 2), 14, yPos);
+          yPos += lines.slice(0, 2).length * 4.5;
+        });
+
+        // Donts
+        const dontsX = 14 + halfW + 5;
+        let dontsY = yPos - (8 + (kit.dosCommunication ?? []).slice(0, 5).reduce((acc) => acc + 4.5, 0));
+        setFill("#FFF1F2");
+        setDraw("#FECDD3");
+        doc.roundedRect(dontsX, dontsY, halfW, 4, 1, 1, "F");
+        setTextColor("#DC2626");
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.text("✗  DON'T", dontsX, dontsY + 2.5);
+        dontsY += 8;
+        (kit.dontsCommunication ?? []).slice(0, 5).forEach((item) => {
+          setTextColor("#B91C1C");
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "normal");
+          const lines = doc.splitTextToSize(`• ${item}`, halfW - 4);
+          doc.text(lines.slice(0, 2), dontsX, dontsY);
+          dontsY += lines.slice(0, 2).length * 4.5;
+        });
+      }
+
+      // Page footer
+      yPos = H - 15;
+      setDraw("#E2E8F0");
+      doc.setLineWidth(0.3);
+      doc.line(14, yPos, W - 14, yPos);
+      setTextColor(neutral);
+      doc.setFontSize(7.5);
+      doc.text(`${brand.companyName} Brand Identity · Page 4`, W / 2, yPos + 6, { align: "center" });
+
+      // ── PAGE 5: TAGLINES, KEYWORDS & SOCIAL ───────────────────────────────
+      doc.addPage();
+
+      setFill(primary);
+      doc.rect(0, 0, W, 18, "F");
+      setTextColor("#FFFFFF");
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text(brand.companyName.toUpperCase(), 14, 11);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text("TAGLINES, KEYWORDS & SOCIAL", W - 14, 11, { align: "right" });
+
+      yPos = 35;
+
+      if (kit.taglines && kit.taglines.length > 0) {
+        yPos = sectionHeader("Brand Taglines", yPos);
+        kit.taglines.slice(0, 5).forEach((tagline, i) => {
+          setFill(i === 0 ? primary : "#F8FAFC");
+          setDraw(i === 0 ? primary : "#E2E8F0");
+          doc.roundedRect(14, yPos, W - 28, 12, 3, 3, "FD");
+          setTextColor(i === 0 ? "#FFFFFF" : textCol);
+          doc.setFontSize(9.5);
+          doc.setFont("helvetica", i === 0 ? "bolditalic" : "italic");
+          doc.text(`"${tagline}"`, 22, yPos + 8);
+          if (i === 0) {
+            doc.setTextColor(200, 200, 220);
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "bold");
+            doc.text("PRIMARY", W - 22, yPos + 8, { align: "right" });
+          }
+          yPos += 16;
+        });
+        yPos += 5;
+      }
+
+      if (kit.brandKeywords && kit.brandKeywords.length > 0) {
+        yPos = sectionHeader("Brand Keywords", yPos);
+        let kx = 14;
+        kit.brandKeywords.slice(0, 16).forEach((kw) => {
+          const kwWidth = doc.getTextWidth(kw) + 10;
+          if (kx + kwWidth > W - 14) { kx = 14; yPos += 10; }
+          setFill(primary + "15");
+          setDraw(primary + "40");
+          doc.setLineWidth(0.4);
+          doc.roundedRect(kx, yPos - 5, kwWidth, 8, 2, 2, "FD");
+          setTextColor(primary);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          doc.text(kw, kx + 5, yPos + 1);
+          kx += kwWidth + 4;
+        });
+        yPos += 15;
+      }
+
+      if (kit.socialBio) {
+        yPos = sectionHeader("Social Media Bio", yPos);
+        setFill("#F8FAFC");
+        setDraw("#E2E8F0");
+        doc.roundedRect(14, yPos, W - 28, 20, 4, 4, "FD");
+        setTextColor(textCol);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        const bioLines = doc.splitTextToSize(kit.socialBio, W - 44);
+        doc.text(bioLines.slice(0, 3), 22, yPos + 8);
+        yPos += 28;
+      }
+
+      if (kit.messagingPillars && kit.messagingPillars.length > 0) {
+        yPos = sectionHeader("Messaging Pillars", yPos);
+        const pillarW = (W - 28 - (kit.messagingPillars.length - 1) * 4) / Math.min(kit.messagingPillars.length, 3);
+        kit.messagingPillars.slice(0, 3).forEach((pillar, i) => {
+          const px = 14 + i * (pillarW + 4);
+          const colors = [primary, secondary, accent];
+          setFill(colors[i % 3]);
+          doc.roundedRect(px, yPos, pillarW, 3, 1, 1, "F");
+          setTextColor(colors[i % 3]);
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "bold");
+          doc.text(`0${i + 1}`, px, yPos + 12);
+          setTextColor(textCol);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          const lines = doc.splitTextToSize(pillar, pillarW - 2);
+          doc.text(lines.slice(0, 3), px, yPos + 18);
+        });
+        yPos += 45;
+      }
+
+      // Page footer
+      yPos = H - 15;
+      setDraw("#E2E8F0");
+      doc.setLineWidth(0.3);
+      doc.line(14, yPos, W - 14, yPos);
+      setTextColor(neutral);
+      doc.setFontSize(7.5);
+      doc.text(`${brand.companyName} Brand Identity · Page 5`, W / 2, yPos + 6, { align: "center" });
+
+      // Save
+      doc.save(`${brand.companyName.replace(/\s+/g, "-")}-brand-identity.pdf`);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -403,6 +987,16 @@ export default function BrandKit() {
               <Link href={`/brands/${brandId}/campaigns`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
                 <Megaphone className="w-3.5 h-3.5" /> Campaigns ({stats?.totalCampaigns ?? 0})
               </Link>
+              {kit && (
+                <button
+                  onClick={handleExportPdf}
+                  disabled={exportingPdf}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-60"
+                >
+                  {exportingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  {exportingPdf ? "Exporting..." : "Export PDF"}
+                </button>
+              )}
               <button
                 onClick={() => { setGenerateError(null); setShowBriefModal(true); }}
                 disabled={generating}

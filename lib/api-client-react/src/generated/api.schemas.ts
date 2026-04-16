@@ -133,6 +133,39 @@ export interface UpdatePostBody {
   platform?: string;
 }
 
+/**
+ * Image output size
+ */
+export type GeneratePostImageBodySize =
+  (typeof GeneratePostImageBodySize)[keyof typeof GeneratePostImageBodySize];
+
+export const GeneratePostImageBodySize = {
+  "256x256": "256x256",
+  "512x512": "512x512",
+  "1024x1024": "1024x1024",
+} as const;
+
+/**
+ * AI model quality for prompt enhancement
+ */
+export type GeneratePostImageBodyModel =
+  (typeof GeneratePostImageBodyModel)[keyof typeof GeneratePostImageBodyModel];
+
+export const GeneratePostImageBodyModel = {
+  nano: "nano",
+  mini: "mini",
+  pro: "pro",
+} as const;
+
+export interface GeneratePostImageBody {
+  /** Custom image prompt from the user (overrides the post imagePrompt) */
+  customPrompt?: string;
+  /** Image output size */
+  size?: GeneratePostImageBodySize;
+  /** AI model quality for prompt enhancement */
+  model?: GeneratePostImageBodyModel;
+}
+
 export interface Campaign {
   id: number;
   brandId: number;

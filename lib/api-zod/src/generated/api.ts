@@ -403,6 +403,23 @@ export const GeneratePostImageParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const GeneratePostImageBody = zod.object({
+  customPrompt: zod
+    .string()
+    .optional()
+    .describe(
+      "Custom image prompt from the user (overrides the post imagePrompt)",
+    ),
+  size: zod
+    .enum(["256x256", "512x512", "1024x1024"])
+    .optional()
+    .describe("Image output size"),
+  model: zod
+    .enum(["nano", "mini", "pro"])
+    .optional()
+    .describe("AI model quality for prompt enhancement"),
+});
+
 export const GeneratePostImageResponse = zod.object({
   id: zod.number(),
   campaignId: zod.number(),
