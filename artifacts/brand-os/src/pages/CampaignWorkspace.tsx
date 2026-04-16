@@ -7,7 +7,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Calendar, Edit3, Check, X, RefreshCw, Loader2, Hash, Image as ImageIcon,
-  Megaphone, Sparkles, Wand2, Copy, CheckCircle2, Download, Layers, FileText,
+  Megaphone, Sparkles, Wand2, Copy, CheckCircle2, Download, FileText,
   Mail, Newspaper, ChevronDown, TestTube2, Instagram, Linkedin, Twitter, Facebook,
   ZoomIn, BarChart2, Target, Settings2, Zap,
 } from "lucide-react";
@@ -102,90 +102,6 @@ async function removeLogoBackground(logoUrl: string): Promise<string> {
     };
     img.onerror = () => resolve(logoUrl);
     img.src = logoUrl;
-  });
-}
-
-// Canvas-based logo compositing in browser
-async function compositeLogoOnImage(
-  baseImageUrl: string,
-  logoUrl: string | null | undefined,
-  brandName: string,
-  primaryColor: string
-): Promise<string> {
-  return new Promise((resolve) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1024;
-    canvas.height = 1024;
-    const ctx = canvas.getContext("2d")!;
-
-    const baseImg = new Image();
-    baseImg.crossOrigin = "anonymous";
-    baseImg.onload = () => {
-      ctx.drawImage(baseImg, 0, 0, 1024, 1024);
-
-      const barH = 72;
-      const gradient = ctx.createLinearGradient(0, 1024 - barH, 0, 1024);
-      gradient.addColorStop(0, "rgba(0,0,0,0)");
-      gradient.addColorStop(1, "rgba(0,0,0,0.75)");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 1024 - barH, 1024, barH);
-
-      ctx.fillStyle = "#FFFFFF";
-      ctx.font = "bold 22px -apple-system, BlinkMacSystemFont, 'Inter', sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.fillText(brandName.toUpperCase(), 24, 1024 - barH / 2);
-
-      ctx.fillStyle = primaryColor;
-      ctx.fillRect(0, 1024 - 4, 1024, 4);
-
-      if (logoUrl) {
-        const logoImg = new Image();
-        logoImg.crossOrigin = "anonymous";
-        logoImg.onload = () => {
-          const maxW = 160;
-          const maxH = 80;
-          const ratio = Math.min(maxW / logoImg.width, maxH / logoImg.height);
-          const w = logoImg.width * ratio;
-          const h = logoImg.height * ratio;
-          const x = 1024 - w - 20;
-          const y = 20;
-
-          const pad = 10;
-          ctx.fillStyle = "rgba(255,255,255,0.92)";
-          ctx.beginPath();
-          ctx.roundRect(x - pad, y - pad, w + pad * 2, h + pad * 2, 10);
-          ctx.fill();
-
-          ctx.drawImage(logoImg, x, y, w, h);
-          resolve(canvas.toDataURL("image/jpeg", 0.92));
-        };
-        logoImg.onerror = () => resolve(canvas.toDataURL("image/jpeg", 0.92));
-        logoImg.src = logoUrl;
-      } else {
-        const initials = brandName
-          .split(/\s+/)
-          .slice(0, 2)
-          .map((w) => w[0])
-          .join("")
-          .toUpperCase();
-        const badgeSize = 64;
-        const bx = 1024 - badgeSize - 20;
-        const by = 20;
-        ctx.fillStyle = primaryColor;
-        ctx.beginPath();
-        ctx.roundRect(bx, by, badgeSize, badgeSize, 12);
-        ctx.fill();
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = `bold ${initials.length > 1 ? 22 : 28}px -apple-system, BlinkMacSystemFont, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(initials, bx + badgeSize / 2, by + badgeSize / 2);
-        ctx.textAlign = "left";
-        resolve(canvas.toDataURL("image/jpeg", 0.92));
-      }
-    };
-    baseImg.onerror = () => resolve(baseImageUrl);
-    baseImg.src = baseImageUrl;
   });
 }
 
@@ -384,8 +300,6 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [variant, setVariant] = useState<PostVariant | null>(null);
   const [longFormContent, setLongFormContent] = useState<LongFormContent | null>(null);
-  const [compositeImageUrl, setCompositeImageUrl] = useState<string | null>(null);
-  const [compositing, setCompositing] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [activePanel, setActivePanel] = useState<"post" | "variant" | "content">("post");
   const [imageExpanded, setImageExpanded] = useState(false);
@@ -417,13 +331,11 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
     await onRegenerate(post.id);
     setRegenerating(false);
     setVariant(null);
-    setCompositeImageUrl(null);
   }
 
   async function handleGenerateWithOptions(opts: ImageGenOptions) {
     setShowImageDialog(false);
     setGeneratingImage(true);
-    setCompositeImageUrl(null);
 
     // If logo reference requested, strip background before sending to AI
     let logoDataUrl: string | undefined;
@@ -431,29 +343,12 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
       logoDataUrl = await removeLogoBackground(brandLogoUrl);
     }
 
-    const updatedPost = await onGenerateImage(post.id, { ...opts, logoDataUrl });
+    await onGenerateImage(post.id, { ...opts, logoDataUrl });
     setGeneratingImage(false);
-
-    // Auto-embed brand logo after generation using the fresh image URL
-    const freshImageUrl = updatedPost?.imageUrl ?? post.imageUrl;
-    if (freshImageUrl) {
-      setCompositing(true);
-      const result = await compositeLogoOnImage(freshImageUrl, brandLogoUrl, brandName, brandPrimaryColor);
-      setCompositeImageUrl(result);
-      setCompositing(false);
-    }
-  }
-
-  async function applyLogoOverlay() {
-    if (!post.imageUrl) return;
-    setCompositing(true);
-    const result = await compositeLogoOnImage(post.imageUrl, brandLogoUrl, brandName, brandPrimaryColor);
-    setCompositeImageUrl(result);
-    setCompositing(false);
   }
 
   async function downloadImage() {
-    const src = compositeImageUrl ?? post.imageUrl;
+    const src = post.imageUrl;
     if (!src) return;
     const a = document.createElement("a");
     a.href = src;
@@ -508,7 +403,7 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
     setEditing(false);
   }
 
-  const displayImage = compositeImageUrl ?? post.imageUrl;
+  const displayImage = post.imageUrl;
 
   return (
     <>
@@ -532,16 +427,6 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
               onClick={() => setImageExpanded((v) => !v)}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/5 to-transparent pointer-events-none" />
-            {compositeImageUrl && (
-              <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/90 text-white text-[11px] font-semibold backdrop-blur-sm">
-                <CheckCircle2 className="w-3 h-3" /> Logo Embedded
-              </div>
-            )}
-            {compositing && (
-              <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/90 text-white text-[11px] font-semibold backdrop-blur-sm">
-                <Loader2 className="w-3 h-3 animate-spin" /> Adding logo...
-              </div>
-            )}
             <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <button onClick={() => setImageExpanded((v) => !v)} className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 backdrop-blur-sm transition-colors">
                 <ZoomIn className="w-3.5 h-3.5" />
@@ -549,23 +434,12 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
             </div>
             <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {!compositeImageUrl ? (
-                  <button
-                    onClick={applyLogoOverlay}
-                    disabled={compositing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/90 text-slate-800 text-xs font-semibold hover:bg-white transition-colors disabled:opacity-60 backdrop-blur-sm shadow-sm"
-                  >
-                    {compositing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
-                    {compositing ? "Adding logo..." : "Embed Logo"}
-                  </button>
-                ) : (
-                  <button
-                    onClick={downloadImage}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/90 text-slate-800 text-xs font-semibold hover:bg-white transition-colors backdrop-blur-sm shadow-sm"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Download
-                  </button>
-                )}
+                <button
+                  onClick={downloadImage}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/90 text-slate-800 text-xs font-semibold hover:bg-white transition-colors backdrop-blur-sm shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download
+                </button>
               </div>
               <button
                 onClick={() => setShowImageDialog(true)}
@@ -1028,9 +902,6 @@ export default function CampaignWorkspace() {
             Social Posts ({campaign.posts?.length ?? 0})
           </h2>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 border border-border">
-              <Layers className="w-3 h-3" /> Auto logo embed
-            </div>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 border border-border">
               <Settings2 className="w-3 h-3" /> Model & size control
             </div>
