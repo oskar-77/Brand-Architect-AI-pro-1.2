@@ -1,7 +1,7 @@
 import { useParams, Link } from "wouter";
 import { useState } from "react";
 import {
-  useGetCampaign, useUpdatePost, useRegeneratePost, useGeneratePostImage,
+  useGetCampaign, useUpdatePost, useRegeneratePost,
   getGetCampaignQueryKey, getGetPostQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import {
   ArrowLeft, Calendar, Edit3, Check, X, RefreshCw, Loader2, Hash, Image as ImageIcon,
   Megaphone, Sparkles, Wand2, Copy, CheckCircle2, Download, Layers, FileText,
   Mail, Newspaper, ChevronDown, TestTube2, Instagram, Linkedin, Twitter, Facebook,
-  ZoomIn, BarChart2, Target, Settings2, Maximize2, Zap,
+  ZoomIn, BarChart2, Target, Settings2, Zap,
 } from "lucide-react";
 import type { SocialPost } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
@@ -32,10 +32,15 @@ interface LongFormContent {
   subjectLine?: string;
 }
 
+type ImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
+
 interface ImageGenOptions {
   customPrompt: string;
-  size: "512x512" | "1024x1024";
+  size: ImageSize;
   model: "nano" | "mini" | "pro";
+  overlayText: string;
+  includeLogo: boolean;
+  logoDataUrl?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,6 +67,42 @@ function PlatformBadge({ platform }: { platform: string }) {
       {cfg.label}
     </span>
   );
+}
+
+// Strip background from logo using canvas (corner-sample approach)
+async function removeLogoBackground(logoUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
+      // Sample the 4 corners to detect background color
+      const corners = [
+        [d[0], d[1], d[2]],
+        [d[(canvas.width - 1) * 4], d[(canvas.width - 1) * 4 + 1], d[(canvas.width - 1) * 4 + 2]],
+        [d[(canvas.height - 1) * canvas.width * 4], d[(canvas.height - 1) * canvas.width * 4 + 1], d[(canvas.height - 1) * canvas.width * 4 + 2]],
+        [d[((canvas.height - 1) * canvas.width + canvas.width - 1) * 4], d[((canvas.height - 1) * canvas.width + canvas.width - 1) * 4 + 1], d[((canvas.height - 1) * canvas.width + canvas.width - 1) * 4 + 2]],
+      ];
+      const bgR = Math.round(corners.reduce((s, c) => s + c[0], 0) / 4);
+      const bgG = Math.round(corners.reduce((s, c) => s + c[1], 0) / 4);
+      const bgB = Math.round(corners.reduce((s, c) => s + c[2], 0) / 4);
+      const tolerance = 50;
+      for (let i = 0; i < d.length; i += 4) {
+        const dist = Math.abs(d[i] - bgR) + Math.abs(d[i + 1] - bgG) + Math.abs(d[i + 2] - bgB);
+        if (dist < tolerance) d[i + 3] = 0;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve(logoUrl);
+    img.src = logoUrl;
+  });
 }
 
 // Canvas-based logo compositing in browser
@@ -150,39 +191,58 @@ async function compositeLogoOnImage(
 
 // ─── Image Generation Dialog ──────────────────────────────────────────────────
 
+function AspectRatioIcon({ ratio }: { ratio: "portrait" | "square" | "landscape" | "auto" }) {
+  if (ratio === "auto") return <Sparkles className="w-4 h-4" />;
+  const w = ratio === "landscape" ? 20 : ratio === "square" ? 14 : 10;
+  const h = ratio === "portrait" ? 20 : ratio === "square" ? 14 : 10;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} fill="none" className="flex-shrink-0">
+      <rect x="0.5" y="0.5" width={w - 1} height={h - 1} rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity="0.15" />
+    </svg>
+  );
+}
+
 function ImageGenDialog({
   open,
   onClose,
   onGenerate,
   defaultPrompt,
   generating,
+  brandLogoUrl,
+  brandName,
 }: {
   open: boolean;
   onClose: () => void;
   onGenerate: (opts: ImageGenOptions) => void;
   defaultPrompt: string;
   generating: boolean;
+  brandLogoUrl?: string | null;
+  brandName: string;
 }) {
   const [customPrompt, setCustomPrompt] = useState(defaultPrompt);
-  const [size, setSize] = useState<"512x512" | "1024x1024">("1024x1024");
+  const [overlayText, setOverlayText] = useState("");
+  const [size, setSize] = useState<ImageSize>("1024x1024");
   const [model, setModel] = useState<"nano" | "mini" | "pro">("pro");
+  const [includeLogo, setIncludeLogo] = useState(!!brandLogoUrl);
 
   if (!open) return null;
 
   const models: { id: "nano" | "mini" | "pro"; label: string; desc: string; icon: React.ElementType }[] = [
     { id: "nano", label: "Nano", desc: "Fast, direct", icon: Zap },
-    { id: "mini", label: "Mini", desc: "Enhanced quality", icon: Sparkles },
+    { id: "mini", label: "Mini", desc: "Enhanced", icon: Sparkles },
     { id: "pro", label: "GPT Pro", desc: "Best quality", icon: Wand2 },
   ];
 
-  const sizes: { id: "512x512" | "1024x1024"; label: string }[] = [
-    { id: "512x512", label: "512 × 512" },
-    { id: "1024x1024", label: "1024 × 1024" },
+  const sizes: { id: ImageSize; label: string; sublabel: string; ratio: "portrait" | "square" | "landscape" | "auto" }[] = [
+    { id: "1024x1536", label: "Story", sublabel: "9:16", ratio: "portrait" },
+    { id: "1024x1024", label: "Square", sublabel: "1:1", ratio: "square" },
+    { id: "1536x1024", label: "Wide", sublabel: "16:9", ratio: "landscape" },
+    { id: "auto",      label: "Auto", sublabel: "AI picks", ratio: "auto" },
   ];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-background rounded-2xl border border-card-border shadow-2xl w-full max-w-lg p-6 space-y-5">
+      <div className="bg-background rounded-2xl border border-card-border shadow-2xl w-full max-w-lg p-6 space-y-5 max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -195,19 +255,76 @@ function ImageGenDialog({
           </button>
         </div>
 
+        {/* Logo reference toggle */}
+        {brandLogoUrl && (
+          <div
+            onClick={() => setIncludeLogo(!includeLogo)}
+            className={cn(
+              "flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all",
+              includeLogo ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+            )}
+          >
+            <img src={brandLogoUrl} alt="Logo" className="w-8 h-8 rounded-lg object-cover border border-border flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-foreground">Use logo as visual reference</p>
+              <p className="text-[11px] text-muted-foreground">Background is removed · logo guides AI style & placement</p>
+            </div>
+            <div className={cn("w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all", includeLogo ? "border-primary bg-primary" : "border-muted-foreground")} />
+          </div>
+        )}
+
+        {/* Main design prompt */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">Image Description</label>
+          <label className="block text-sm font-medium text-foreground mb-1.5">Design Description</label>
           <textarea
             className="w-full px-4 py-3 rounded-xl border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             rows={4}
             value={customPrompt}
             onChange={(e) => setCustomPrompt(e.target.value)}
-            placeholder="Describe the image you want to create — any style, subject, or composition..."
+            placeholder="Describe the visual: style, mood, colors, subject, composition..."
           />
         </div>
 
+        {/* Overlay text */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">AI Model Quality</label>
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            Text in Design <span className="text-muted-foreground font-normal">(optional)</span>
+          </label>
+          <input
+            type="text"
+            className="w-full px-4 py-2.5 rounded-xl border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            value={overlayText}
+            onChange={(e) => setOverlayText(e.target.value)}
+            placeholder="e.g. 'New Collection 2025' or brand tagline to render in the image..."
+          />
+        </div>
+
+        {/* Canvas size – aspect ratio icons */}
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-2">Canvas Size</label>
+          <div className="grid grid-cols-4 gap-2">
+            {sizes.map(({ id, label, sublabel, ratio }) => (
+              <button
+                key={id}
+                onClick={() => setSize(id)}
+                className={cn(
+                  "flex flex-col items-center gap-2 py-3 px-2 rounded-xl border text-xs font-medium transition-all",
+                  size === id
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                )}
+              >
+                <AspectRatioIcon ratio={ratio} />
+                <span className="font-semibold">{label}</span>
+                <span className={cn("text-[10px]", size === id ? "text-primary/70" : "text-muted-foreground")}>{sublabel}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* AI model */}
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-2">AI Prompt Quality</label>
           <div className="grid grid-cols-3 gap-2">
             {models.map(({ id, label, desc, icon: Icon }) => (
               <button
@@ -228,32 +345,12 @@ function ImageGenDialog({
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">Output Size</label>
-          <div className="grid grid-cols-2 gap-2">
-            {sizes.map(({ id, label }) => (
-              <button
-                key={id}
-                onClick={() => setSize(id)}
-                className={cn(
-                  "flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-medium transition-all",
-                  size === id
-                    ? "border-primary bg-primary/5 text-primary"
-                    : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                )}
-              >
-                <Maximize2 className="w-3.5 h-3.5" /> {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="flex items-center gap-3 pt-1">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
             Cancel
           </button>
           <button
-            onClick={() => onGenerate({ customPrompt, size, model })}
+            onClick={() => onGenerate({ customPrompt, size, model, overlayText, includeLogo })}
             disabled={generating || !customPrompt.trim()}
             className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
           >
@@ -327,7 +424,14 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
     setShowImageDialog(false);
     setGeneratingImage(true);
     setCompositeImageUrl(null);
-    const updatedPost = await onGenerateImage(post.id, opts);
+
+    // If logo reference requested, strip background before sending to AI
+    let logoDataUrl: string | undefined;
+    if (opts.includeLogo && brandLogoUrl) {
+      logoDataUrl = await removeLogoBackground(brandLogoUrl);
+    }
+
+    const updatedPost = await onGenerateImage(post.id, { ...opts, logoDataUrl });
     setGeneratingImage(false);
 
     // Auto-embed brand logo after generation using the fresh image URL
@@ -414,6 +518,8 @@ function PostCard({ post, brandLogoUrl, brandName, brandPrimaryColor, onSave, on
         onGenerate={handleGenerateWithOptions}
         defaultPrompt={post.imagePrompt}
         generating={generatingImage}
+        brandLogoUrl={brandLogoUrl}
+        brandName={brandName}
       />
 
       <div className="rounded-xl border border-card-border bg-card overflow-hidden flex flex-col">
@@ -804,7 +910,6 @@ export default function CampaignWorkspace() {
 
   const updatePost = useUpdatePost();
   const regeneratePost = useRegeneratePost();
-  const generatePostImage = useGeneratePostImage();
 
   async function handleSavePost(id: number, data: Partial<SocialPost>) {
     await updatePost.mutateAsync({ id, data: { caption: data.caption, hook: data.hook, cta: data.cta, hashtags: data.hashtags, imagePrompt: data.imagePrompt } });
@@ -819,14 +924,21 @@ export default function CampaignWorkspace() {
   }
 
   async function handleGenerateImage(id: number, opts: ImageGenOptions): Promise<SocialPost | undefined> {
-    const result = await generatePostImage.mutateAsync({
-      id,
-      data: {
-        customPrompt: opts.customPrompt,
-        size: opts.size,
-        model: opts.model,
-      },
+    const body: Record<string, string | undefined> = {
+      customPrompt: opts.customPrompt,
+      size: opts.size,
+      model: opts.model,
+      brandName: brandInfo?.companyName ?? undefined,
+    };
+    if (opts.overlayText) body.overlayText = opts.overlayText;
+    if (opts.logoDataUrl) body.logoDataUrl = opts.logoDataUrl;
+
+    const res = await fetch(`/api/posts/${id}/generate-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
+    const result = await res.json() as SocialPost;
     queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) });
     queryClient.invalidateQueries({ queryKey: getGetPostQueryKey(id) });
     return result;

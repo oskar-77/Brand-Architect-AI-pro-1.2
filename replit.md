@@ -22,18 +22,29 @@ A full Brand Architect AI Pro platform — an "Agentic Creative Partner" that bu
 - `POST /api/brands/:id/generate-story` — Dedicated brand story regeneration endpoint (3-paragraph narrative)
 - `POST /api/brands/:id/generate-campaign` — Multi-platform campaign with platform selector, post count 1-14, brief, reference images
 - `POST /api/brands/:id/generate-content` — Long-form content: blog, email, newsletter
-- `POST /api/posts/:id/generate-image` — AI image generation with composition instructions (top-right kept clear for logo overlay)
+- `POST /api/posts/:id/generate-image` — AI image generation. Body: `{ customPrompt, size, model, logoDataUrl?, overlayText?, brandName? }`. When `logoDataUrl` provided, uses `images.edit` with logo as visual reference. Sizes: `1024x1024` | `1024x1536` | `1536x1024` | `auto`. Models: `nano` (no enhancement) | `mini` (gpt-5-mini enhanced) | `pro` (gpt-5.2 enhanced as art director).
 - `POST /api/posts/:id/generate-variant` — A/B variant with different hook structure, angle, and imagery
 - `POST /api/posts/:id/regenerate` — Full post regeneration with platform-specific tone
 - `POST /api/posts/:id/generate-content` — Long-form content expansion from any post
 
+### Image Generation Dialog (CampaignWorkspace)
+Dialog features:
+- **Logo Reference Toggle**: When brand logo exists, toggle sends logo (background-stripped) to AI as visual reference via `images.edit`. Background is removed client-side using corner-pixel sampling.
+- **Overlay Text Field**: Text to render inside the design (e.g. tagline, campaign title). Added directly to the AI prompt.
+- **Aspect Ratio Presets** (visual SVG icons): Story 9:16 → `1024x1536`, Square 1:1 → `1024x1024`, Wide 16:9 → `1536x1024`, Auto → `auto`
+- **AI Model Quality**: Nano (direct), Mini (gpt-5-mini enhanced), GPT Pro (gpt-5.2 art director enhanced)
+- **Logo placement**: Automatically adds orientation-aware placement instruction to prompt (portrait=bottom-center, landscape=top-left, square=top-right)
+
 ### Logo Overlay (Client-Side Canvas Compositing)
-When user clicks "Embed Logo" on a generated image, the browser's Canvas API:
-1. Draws the base AI-generated image (1024×1024)
+After AI image generation, the browser's Canvas API auto-composites:
+1. Draws the base AI-generated image
 2. Adds a brand name bar at the bottom with gradient overlay
 3. Places the brand logo in the top-right corner with white pill background
 4. Adds primary color accent line at bottom
 5. Exports as downloadable JPEG (quality 0.92)
+
+### Logo Background Removal (Client-Side)
+`removeLogoBackground()` function: samples 4 corners to detect background color, replaces pixels within tolerance=50 with transparent, returns PNG data URL for use as AI reference.
 
 ---
 

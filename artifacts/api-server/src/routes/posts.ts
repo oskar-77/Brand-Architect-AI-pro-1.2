@@ -8,7 +8,7 @@ import {
   RegeneratePostParams,
   GeneratePostImageParams,
 } from "@workspace/api-zod";
-import { openai, generateImageBuffer } from "@workspace/integrations-openai-ai-server";
+import { openai, generateImageBuffer, generateImageWithLogoReference, type ImageSize } from "@workspace/integrations-openai-ai-server";
 import { asyncHandler } from "../lib/asyncHandler";
 import { generatePostVariant, type BrandKit } from "../lib/ai";
 
@@ -49,7 +49,7 @@ router.patch("/posts/:id", asyncHandler(async (req, res) => {
   res.json({ ...post, createdAt: post.createdAt.toISOString(), updatedAt: post.updatedAt.toISOString() });
 }));
 
-// ─── Generate image (base image, logo overlay done client-side) ───────────────
+// ─── Generate image (logo reference via images.edit, compositing client-side) ─
 
 router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
   const params = GeneratePostImageParams.safeParse(req.params);
@@ -58,14 +58,45 @@ router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
   const [post] = await db.select().from(postsTable).where(eq(postsTable.id, params.data.id));
   if (!post) { res.status(404).json({ error: "Post not found" }); return; }
 
-  const body = req.body as { customPrompt?: string; size?: "256x256" | "512x512" | "1024x1024"; model?: "nano" | "mini" | "pro" };
-  const size = body.size ?? "1024x1024";
-  const model = body.model ?? "pro";
+  const body = req.body as {
+    customPrompt?: string;
+    size?: ImageSize;
+    model?: "nano" | "mini" | "pro";
+    logoDataUrl?: string;
+    overlayText?: string;
+    brandName?: string;
+  };
 
-  // Use user's custom prompt if provided, otherwise use post's imagePrompt
+  const size: ImageSize = (["1024x1024", "1024x1536", "1536x1024", "auto"].includes(body.size ?? ""))
+    ? (body.size as ImageSize)
+    : "1024x1024";
+  const model = body.model ?? "pro";
+  const logoDataUrl = body.logoDataUrl?.trim() || null;
+  const overlayText = body.overlayText?.trim() || null;
+  const brandName = body.brandName?.trim() || null;
+
   let basePrompt = body.customPrompt?.trim() || post.imagePrompt;
 
-  // Enhance prompt quality based on model selection
+  // Determine orientation-aware logo placement instruction
+  const logoPlacement = size === "1024x1536"
+    ? "lower-center area, leaving the top two-thirds clear for the main visual"
+    : size === "1536x1024"
+    ? "top-left corner, with the main visual occupying the right side"
+    : "top-right corner, keeping the subject in the left 70% of the frame";
+
+  // Append overlay text instruction if provided
+  if (overlayText) {
+    basePrompt += `. Include the following text rendered clearly and legibly in the design: "${overlayText}"`;
+  }
+
+  // Append logo placement instruction when logo reference will be used
+  if (logoDataUrl && brandName) {
+    basePrompt += `. The brand logo for "${brandName}" is provided as a reference — incorporate it naturally in the ${logoPlacement}. Match the logo's color scheme in the overall palette.`;
+  } else if (brandName) {
+    basePrompt += `. Reserve a clean area in the ${logoPlacement} for the brand logo to be composited on top.`;
+  }
+
+  // Enhance prompt based on model
   let finalPrompt: string;
   if (model === "nano") {
     finalPrompt = basePrompt;
@@ -75,7 +106,7 @@ router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
       max_completion_tokens: 300,
       messages: [{
         role: "user",
-        content: `Enhance this image prompt to be more vivid and detailed for AI image generation. Return only the enhanced prompt, nothing else:\n\n${basePrompt}`,
+        content: `Enhance this social media design prompt to be more vivid and detailed for AI image generation. Keep all logo placement and text instructions exactly as written. Return only the enhanced prompt:\n\n${basePrompt}`,
       }],
     });
     finalPrompt = response.choices[0]?.message?.content?.trim() ?? basePrompt;
@@ -85,13 +116,20 @@ router.post("/posts/:id/generate-image", asyncHandler(async (req, res) => {
       max_completion_tokens: 400,
       messages: [{
         role: "user",
-        content: `You are a professional art director. Enhance this image prompt with rich visual details, lighting, mood, and composition to produce a stunning commercial-quality image. Return only the enhanced prompt, nothing else:\n\n${basePrompt}`,
+        content: `You are a professional art director and social media designer. Enhance this design prompt with rich visual details, typography guidance, lighting, mood, and cinematic composition to produce a stunning commercial-quality social media image. Keep all logo placement, text overlay, and brand instructions exactly as written. Return only the enhanced prompt:\n\n${basePrompt}`,
       }],
     });
     finalPrompt = response.choices[0]?.message?.content?.trim() ?? basePrompt;
   }
 
-  const imageBuffer = await generateImageBuffer(finalPrompt, size as "256x256" | "512x512" | "1024x1024");
+  // Generate with logo reference (images.edit) or standard generate
+  let imageBuffer: Buffer;
+  if (logoDataUrl) {
+    imageBuffer = await generateImageWithLogoReference(logoDataUrl, finalPrompt, size);
+  } else {
+    imageBuffer = await generateImageBuffer(finalPrompt, size);
+  }
+
   const imageUrl = `data:image/png;base64,${imageBuffer.toString("base64")}`;
 
   const [updated] = await db
